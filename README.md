@@ -12,3 +12,7 @@ This repository serves as the central hub for projects related to the Operating 
 - **forkbomb/**: Implements an eBPF-based solution to detect and prevent fork bombs by monitoring process creation patterns and terminating processes that exhibit fork bomb behavior.
 - **keylogger/**: Implements a keylogger functionality with a circular buffer (32 bytes). The buffer is printed out on stdout (via a perf buffer) upon press on the `Enter` key.
 
+## Authors
+
+- @martinDengis 
+- @giooms
