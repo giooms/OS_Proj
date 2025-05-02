@@ -19,7 +19,7 @@ INCLUDE_DIR = include
 
 # Source files
 # Assumes Makefile is in the 'src' directory
-SRCS = main.c fs.c fs_helpers.c error.c vdisk/vdisk.c
+SRCS = main.c fs.c error.c vdisk/vdisk.c
 
 # Object files: automatically generated from source files (.o replace .c)
 OBJS = $(SRCS:.c=.o)
