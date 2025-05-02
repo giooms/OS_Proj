@@ -13,7 +13,10 @@
 #define POINTERS_PER_BLOCK (BLOCK_SIZE / sizeof(uint32_t))
 #define MAGIC_NUMBER "\xf0\x55\x4c\x49\x45\x47\x45\x49\x4e\x46\x4f\x30\x39\x34\x30\x0f"
 
-/* File system data structures */
+
+/*************************/
+/* Data structures       */
+/*************************/
 
 // Super block structure
 typedef struct
@@ -41,7 +44,10 @@ static superblock_t superblock;
 static uint32_t *block_bitmap = NULL; // For tracking free blocks
 static char *mounted_disk = NULL;
 
-/* Implementation of core functions */
+
+/*************************/
+/* Core functions        */
+/*************************/
 
 int format(char *disk_name, int inodes)
 {
@@ -338,10 +344,52 @@ int unmount(void)
 int create(void)
 {
     // 1. Check if disk is mounted
-    // 2. Find first available inode
-    // 3. Initialize inode (valid=1, size=0)
-    // 4. Write inode to disk
-    // 5. Return inode number
+    if (!disk_mounted)
+    {
+        return E_DISK_NOT_MOUNTED;
+    }
+
+    // 2. Iterate through all possible inodes
+    int max_inodes = superblock.num_inode_blocks * INODES_PER_BLOCK;
+    for (int inode_num = 0; inode_num < max_inodes; inode_num++)
+    {
+        // 3. Read current inode
+        inode_t inode;
+        int result = read_inode(inode_num, &inode);
+        if (result != 0)
+        {
+            return result; // Return error if unable to read inode
+        }
+
+        // 4. Check if the inode is free (valid = 0)
+        if (inode.valid == 0)
+        {
+            // Initialize inode fields
+            inode.valid = 1; // Mark as allocated
+            inode.size = 0;  // Empty file
+
+            // Initialize all block pointers to 0
+            for (int i = 0; i < 4; i++)
+            {
+                inode.direct_blocks[i] = 0;
+            }
+            inode.indirect_block = 0;
+            inode.double_indirect_block = 0;
+
+            // 5. Write the inode back to disk
+            result = write_inode(inode_num, &inode);
+            if (result != 0)
+            {
+                return result; // Return error if unable to write inode
+            }
+
+            // 6. Return the inode number
+            return inode_num;
+        }
+    }
+
+    // 7. If we get here, no free inodes were found
+    return E_OUT_OF_INODES;
 }
 
 int delete(int inode_num)
@@ -387,15 +435,23 @@ int write(int inode_num, uint8_t *data, int len, int offset)
     // 7. Return bytes written
 }
 
-/* Helper functions */
+
+/*************************/
+/* Helper functions      */
+/*************************/
 
 // Helper function to read an inode from disk
 static int read_inode(int inode_num, inode_t *inode)
 {
     if (!disk_mounted)
+    {
         return E_DISK_NOT_MOUNTED;
+    }
+
     if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    {
         return E_INVALID_INODE;
+    }
 
     // Calculate block number and offset for the inode
     int block_num = 1 + (inode_num / INODES_PER_BLOCK); // +1 because block 0 is superblock
@@ -405,7 +461,9 @@ static int read_inode(int inode_num, inode_t *inode)
     uint8_t block[BLOCK_SIZE];
     int result = vdisk_read(&disk, block_num, block);
     if (result != 0)
+    {
         return result;
+    }
 
     // Copy inode data
     memcpy(inode, block + offset, INODE_SIZE);
@@ -417,9 +475,14 @@ static int read_inode(int inode_num, inode_t *inode)
 static int write_inode(int inode_num, inode_t *inode)
 {
     if (!disk_mounted)
+    {
         return E_DISK_NOT_MOUNTED;
+    }
+
     if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    {
         return E_INVALID_INODE;
+    }
 
     // Calculate block number and offset for the inode
     int block_num = 1 + (inode_num / INODES_PER_BLOCK); // +1 because block 0 is superblock
@@ -429,7 +492,9 @@ static int write_inode(int inode_num, inode_t *inode)
     uint8_t block[BLOCK_SIZE];
     int result = vdisk_read(&disk, block_num, block);
     if (result != 0)
+    {
         return result;
+    }
 
     // Update inode data in the block
     memcpy(block + offset, inode, INODE_SIZE);
@@ -437,7 +502,9 @@ static int write_inode(int inode_num, inode_t *inode)
     // Write the block back to disk
     result = vdisk_write(&disk, block_num, block);
     if (result != 0)
+    {
         return result;
+    }
 
     return 0;
 }
@@ -446,7 +513,9 @@ static int write_inode(int inode_num, inode_t *inode)
 static int find_free_block()
 {
     if (!disk_mounted)
+    {
         return E_DISK_NOT_MOUNTED;
+    }
 
     // Start from the first data block (after superblock and inode blocks)
     int first_data_block = 1 + superblock.num_inode_blocks;
@@ -479,9 +548,13 @@ static void free_block(int block_num)
 static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
 {
     if (!disk_mounted)
+    {
         return E_DISK_NOT_MOUNTED;
+    }
     if (offset < 0)
+    {
         return E_INVALID_OFFSET;
+    }
 
     // Calculate which block this offset falls into
     int block_index = offset / BLOCK_SIZE;
@@ -494,7 +567,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
             // Need to allocate a new block
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block; // Error finding free block
+            }
 
             // Initialize the new block with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -518,12 +593,16 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         if (inode->indirect_block == 0)
         {
             if (!allocate)
+            {
                 return 0; // No block and not allocating
+            }
 
             // Allocate new indirect block
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block;
+            }
 
             // Initialize with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -541,7 +620,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         uint8_t indirect_block[BLOCK_SIZE];
         int result = vdisk_read(&disk, inode->indirect_block, indirect_block);
         if (result != 0)
+        {
             return result;
+        }
 
         uint32_t *pointers = (uint32_t *)indirect_block;
 
@@ -550,7 +631,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         {
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block;
+            }
 
             // Initialize with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -583,12 +666,16 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         if (inode->double_indirect_block == 0)
         {
             if (!allocate)
+            {
                 return 0; // No block and not allocating
+            }
 
             // Allocate new double indirect block
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block;
+            }
 
             // Initialize with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -606,7 +693,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         uint8_t double_indirect_block[BLOCK_SIZE];
         int result = vdisk_read(&disk, inode->double_indirect_block, double_indirect_block);
         if (result != 0)
+        {
             return result;
+        }
 
         uint32_t *pointers = (uint32_t *)double_indirect_block;
 
@@ -619,7 +708,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         {
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block;
+            }
 
             // Initialize with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -649,7 +740,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         uint8_t indirect_block[BLOCK_SIZE];
         result = vdisk_read(&disk, pointers[indirect_index], indirect_block);
         if (result != 0)
+        {
             return result;
+        }
 
         uint32_t *sub_pointers = (uint32_t *)indirect_block;
 
@@ -658,7 +751,9 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
         {
             int new_block = find_free_block();
             if (new_block < 0)
+            {
                 return new_block;
+            }
 
             // Initialize with zeros
             uint8_t zeros[BLOCK_SIZE] = {0};
@@ -686,23 +781,14 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
     return E_INVALID_OFFSET; // Offset too large for this file system
 }
 
-// Helper function to check if disk is mounted
-static int check_mounted()
+// Helper function to initialize a block with zeros
+static int initialize_block(int block_num)
 {
     if (!disk_mounted)
     {
         return E_DISK_NOT_MOUNTED;
     }
-    return 0;
-}
-
-// Helper function to initialize a block with zeros
-static int initialize_block(int block_num)
-{
-    if (!disk_mounted)
-        return E_DISK_NOT_MOUNTED;
 
     uint8_t zeros[BLOCK_SIZE] = {0};
-    int result = vdisk_write(&disk, block_num, zeros);
-    return result;
+    return vdisk_write(&disk, block_num, zeros);
 }
