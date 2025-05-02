@@ -40,6 +40,18 @@ char *mounted_disk = NULL;
 /* Core functions        */
 /*************************/
 
+/*
+ * NB: before formatting the image, we mut rightfully create it.
+ * -> Can do so using the `dd` command as such:
+ *      `dd if=/dev/zero of=mydisk.img bs=1024 count=100`
+ *  where,
+ *      - dd: data duplicator/converter command
+ *      - if=/dev/zero: Input File - reads from /dev/zero, which is a special file
+ *                      that provides unlimited stream of zero bytes
+ *      - of=mydisk.img: Output File - writes to file named mydisk.img
+ *      - bs=1024: Block Size - to be set at 1024 bytes as per the statement
+ *      - count=100: Number of blocks to copy - copies exactly 100 blocks
+ */
 int format(char *disk_name, int inodes)
 {
     // Precondition: Check if disk already mounted
@@ -74,7 +86,7 @@ int format(char *disk_name, int inodes)
 
     // Ensure enough space for at least one data block
     //  +1 to account for the superblock!
-    if (num_inode_blocks + 1 >= total_blocks)
+    if ((uint32_t)num_inode_blocks + 1 >= total_blocks)
     {
         vdisk_off(&format_disk);
         return E_OUT_OF_SPACE; // can't fit inode b + superb + (>=1) one data b
@@ -171,7 +183,7 @@ int mount(char *disk_name)
     }
 
     // Scan all inodes to mark data blocks as used if allocated
-    for (int i = 0; i < superblock.num_inode_blocks * INODES_PER_BLOCK; i++)
+    for (uint32_t i = 0; i < superblock.num_inode_blocks * INODES_PER_BLOCK; i++)
     {
         inode_t inode;
         int result = read_inode(i, &inode);
@@ -211,7 +223,7 @@ int mount(char *disk_name)
 
                 // Set non-zero entries in indirect block as used
                 uint32_t *pointers = (uint32_t *)indirect_block;
-                for (int k = 0; k < POINTERS_PER_BLOCK; k++)
+                for (uint32_t k = 0; k < POINTERS_PER_BLOCK; k++)
                 {
                     if (pointers[k] != 0)
                     {
@@ -237,7 +249,7 @@ int mount(char *disk_name)
 
                 // Process pointer in the double indirect block
                 uint32_t *indirect_pointers = (uint32_t *)double_indirect_block;
-                for (int j = 0; j < POINTERS_PER_BLOCK; j++)
+                for (uint32_t j = 0; j < POINTERS_PER_BLOCK; j++)
                 {
                     if (indirect_pointers[j] != 0)
                     {
@@ -256,7 +268,7 @@ int mount(char *disk_name)
 
                         // Set non-zero entries in this indirect block
                         uint32_t *data_pointers = (uint32_t *)curr_indirect_block;
-                        for (int k = 0; k < POINTERS_PER_BLOCK; k++)
+                        for (uint32_t k = 0; k < POINTERS_PER_BLOCK; k++)
                         {
                             if (data_pointers[k] != 0)
                             {
@@ -382,7 +394,7 @@ int delete(int inode_num)
     }
 
     // 2. Check if inode # is valid
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -424,7 +436,7 @@ int delete(int inode_num)
 
         // Free all referenced data blocks
         uint32_t *pointers = (uint32_t *)indirect_block;
-        for (int i = 0; i < POINTERS_PER_BLOCK; i++)
+        for (uint32_t i = 0; i < POINTERS_PER_BLOCK; i++)
         {
             if (pointers[i] != 0)
             {
@@ -450,7 +462,7 @@ int delete(int inode_num)
 
         // Process pointer in the double indirect block
         uint32_t *indirect_pointers = (uint32_t *)double_indirect_block;
-        for (int i = 0; i < POINTERS_PER_BLOCK; i++)
+        for (uint32_t i = 0; i < POINTERS_PER_BLOCK; i++)
         {
             if (indirect_pointers[i] != 0)
             {
@@ -464,7 +476,7 @@ int delete(int inode_num)
 
                 // Free all referenced data blocks
                 uint32_t *data_pointers = (uint32_t *)indirect_block;
-                for (int j = 0; j < POINTERS_PER_BLOCK; j++)
+                for (uint32_t j = 0; j < POINTERS_PER_BLOCK; j++)
                 {
                     if (data_pointers[j] != 0)
                     {
@@ -505,7 +517,7 @@ int stat(int inode_num)
     }
 
     // 2. Check if inode # is valid
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -536,7 +548,7 @@ int read(int inode_num, uint8_t *data, int len, int offset)
     }
 
     // 2. Check if inode # is valid
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -557,7 +569,7 @@ int read(int inode_num, uint8_t *data, int len, int offset)
 
     // 5. Determine actual # of bytes to read
     int bytes_to_read = 0;
-    if (offset < inode.size)
+    if ((uint32_t)offset < inode.size)
     {
         bytes_to_read = inode.size - offset;
         if (bytes_to_read > len)
@@ -574,7 +586,7 @@ int read(int inode_num, uint8_t *data, int len, int offset)
 
     // 7. Init counter for total bytes read
     int bytes_read = 0;
-    int current_offset = offset;
+    uint32_t current_offset = offset;
 
     // 8. Read block by block
     while (bytes_read < bytes_to_read)
@@ -627,7 +639,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
     }
 
     // 2. Check if inode # is valid
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -647,7 +659,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
     }
 
     // 5. If offset beyond curr file size, fill the gap with 0s
-    if (offset > inode.size)
+    if ((uint32_t)offset > inode.size)
     {
         int zero_fill_start = inode.size;
         int zero_fill_end = offset;
@@ -663,7 +675,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
                 // Error allocating block
                 // but potentially we've already modified the file
                 // <=> update inode size to reflect changes so far
-                inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                inode.size = ((uint32_t)curr_offset > inode.size) ? (uint32_t)curr_offset : inode.size;
                 write_inode(inode_num, &inode);
                 return block_num; // err code
             }
@@ -684,7 +696,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
                 if (result != 0)
                 {
                     // If read fails -> update inode and return the error
-                    inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                    inode.size = ((uint32_t)curr_offset > inode.size) ? (uint32_t)curr_offset : inode.size;
                     write_inode(inode_num, &inode);
                     return result;
                 }
@@ -703,7 +715,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
             if (result != 0)
             {
                 // If write fails -> update inode and return the error
-                inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                inode.size = ((uint32_t)curr_offset > inode.size) ? (uint32_t)curr_offset : inode.size;
                 write_inode(inode_num, &inode);
                 return result;
             }
@@ -730,7 +742,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
         if (block_num <= 0)
         {
             // Update inode size to reflect changes so far
-            if (current_offset > inode.size)
+            if ((uint32_t)current_offset > inode.size)
             {
                 inode.size = current_offset;
                 write_inode(inode_num, &inode);
@@ -756,7 +768,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
                 // If some data was already written, update size and rtn count
                 if (bytes_written > 0)
                 {
-                    if (current_offset > inode.size)
+                    if ((uint32_t)current_offset > inode.size)
                     {
                         inode.size = current_offset;
                         write_inode(inode_num, &inode);
@@ -777,7 +789,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
             // If some data was already written, update size and rtn count
             if (bytes_written > 0)
             {
-                if (current_offset > inode.size)
+                if ((uint32_t)current_offset > inode.size)
                 {
                     inode.size = current_offset;
                     write_inode(inode_num, &inode);
@@ -793,7 +805,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
     }
 
     // 7. Update inode size if the write extended the file
-    if (current_offset > inode.size)
+    if ((uint32_t)current_offset > inode.size)
     {
         inode.size = current_offset;
         result = write_inode(inode_num, &inode);
