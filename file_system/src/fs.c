@@ -629,17 +629,192 @@ int read(int inode_num, uint8_t *data, int len, int offset)
 
 int write(int inode_num, uint8_t *data, int len, int offset)
 {
-    // 1. Check if disk is mounted
-    // 2. Read inode
-    // 3. If offset > file size, zero-fill the gap
-    // 4. For each block needed:
-    //    - Calculate/allocate block for this offset
-    //    - Read block if not overwriting entirely
-    //    - Write data to block
-    //    - Write block to disk
-    // 5. Update inode size if needed
-    // 6. Write inode to disk
-    // 7. Return bytes written
+    // 1. Check for disk mounted
+    if (!disk_mounted)
+    {
+        return E_DISK_NOT_MOUNTED;
+    }
+
+    // 2. Check if inode # is valid
+    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    {
+        return E_INVALID_INODE;
+    }
+
+    // 3. Read the inode
+    inode_t inode;
+    int result = read_inode(inode_num, &inode);
+    if (result != 0)
+    {
+        return result;
+    }
+
+    // 4. Check if inode is allocated/valid
+    if (inode.valid == 0)
+    {
+        return E_INVALID_INODE;
+    }
+
+    // 5. If offset beyond curr file size, fill the gap with 0s
+    if (offset > inode.size)
+    {
+        int zero_fill_start = inode.size;
+        int zero_fill_end = offset;
+        uint8_t zeros[BLOCK_SIZE] = {0};
+
+        for (int curr_offset = zero_fill_start; curr_offset < zero_fill_end; )
+        {
+            int block_offset = curr_offset % BLOCK_SIZE;
+            int block_num = get_block_for_offset(&inode, curr_offset, true);
+
+            if (block_num <= 0)
+            {
+                // Error allocating block
+                // but potentially we've already modified the file
+                // <=> update inode size to reflect changes so far
+                inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                write_inode(inode_num, &inode);
+                return block_num; // err code
+            }
+
+            // Get how many bytes to fill in this block
+            int bytes_to_fill = BLOCK_SIZE - block_offset;
+            if (bytes_to_fill > (zero_fill_end - curr_offset))
+            {
+                bytes_to_fill = zero_fill_end - curr_offset;
+            }
+
+            // If block not empty / we're not writing a full block,
+            // we need to read the existing block
+            uint8_t block[BLOCK_SIZE];
+            if (block_offset > 0 || bytes_to_fill < BLOCK_SIZE)
+            {
+                result = vdisk_read(&disk, block_num, block);
+                if (result != 0)
+                {
+                    // If read fails -> update inode and return the error
+                    inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                    write_inode(inode_num, &inode);
+                    return result;
+                }
+            }
+            else
+            {
+                // If writing a full block, just use our 0-buffer
+                memcpy(block, zeros, BLOCK_SIZE);
+            }
+
+            // Fill the appropriate portion of the block with 0s
+            memset(block + block_offset, 0, bytes_to_fill);
+
+            // Write block back to disk
+            result = vdisk_write(&disk, block_num, block);
+            if (result != 0)
+            {
+                // If write fails -> update inode and return the error
+                inode.size = (curr_offset > inode.size) ? curr_offset : inode.size;
+                write_inode(inode_num, &inode);
+                return result;
+            }
+
+            // Update offset
+            curr_offset += bytes_to_fill;
+        }
+
+        // Update inode size to new offset
+        inode.size = offset;
+    }
+
+    // 6. Write data from user buffer
+    int bytes_written = 0;
+    int current_offset = offset;
+
+    while (bytes_written < len)
+    {
+        // Get block idx and offset w/in the block
+        int block_offset = current_offset % BLOCK_SIZE;
+        int block_num = get_block_for_offset(&inode, current_offset, true); // pass allocate=true for potential new block
+
+        // If error getting/allocating the block
+        if (block_num <= 0)
+        {
+            // Update inode size to reflect changes so far
+            if (current_offset > inode.size)
+            {
+                inode.size = current_offset;
+                write_inode(inode_num, &inode);
+            }
+            return (bytes_written > 0) ? bytes_written : block_num;
+        }
+
+        // Get how many bytes to write to this block
+        int bytes_to_write = BLOCK_SIZE - block_offset;
+        if (bytes_to_write > (len - bytes_written))
+        {
+            bytes_to_write = len - bytes_written;
+        }
+
+        // If not writing a full block or starting from the beginning of a block,
+        // => then need to read the existing block to preserve data
+        uint8_t block[BLOCK_SIZE];
+        if (block_offset > 0 || bytes_to_write < BLOCK_SIZE)
+        {
+            result = vdisk_read(&disk, block_num, block);
+            if (result != 0)
+            {
+                // If some data was already written, update size and rtn count
+                if (bytes_written > 0)
+                {
+                    if (current_offset > inode.size)
+                    {
+                        inode.size = current_offset;
+                        write_inode(inode_num, &inode);
+                    }
+                    return bytes_written;
+                }
+                return result;
+            }
+        }
+
+        // Copy data from user buffer to block
+        memcpy(block + block_offset, data + bytes_written, bytes_to_write);
+
+        // Write block back to disk
+        result = vdisk_write(&disk, block_num, block);
+        if (result != 0)
+        {
+            // If some data was already written, update size and rtn count
+            if (bytes_written > 0)
+            {
+                if (current_offset > inode.size)
+                {
+                    inode.size = current_offset;
+                    write_inode(inode_num, &inode);
+                }
+                return bytes_written;
+            }
+            return result;
+        }
+
+        // Update counters
+        bytes_written += bytes_to_write;
+        current_offset += bytes_to_write;
+    }
+
+    // 7. Update inode size if the write extended the file
+    if (current_offset > inode.size)
+    {
+        inode.size = current_offset;
+        result = write_inode(inode_num, &inode);
+        if (result != 0)
+        {
+            // Even writing inode fails, we have written data,
+            // so return count of bytes written so far
+            return bytes_written;
+        }
+    }
+
+    return bytes_written;
 }
 
 
@@ -778,7 +953,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
                 return new_block; // Error finding free block
             }
 
-            // Init the new block with zeros
+            // Init the new block with 0s
             uint8_t zeros[BLOCK_SIZE] = {0};
             int result = vdisk_write(&disk, new_block, zeros);
             if (result != 0)
@@ -811,7 +986,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
                 return new_block;
             }
 
-            // Init with zeros
+            // Init with 0s
             uint8_t zeros[BLOCK_SIZE] = {0};
             int result = vdisk_write(&disk, new_block, zeros);
             if (result != 0)
@@ -842,7 +1017,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
                 return new_block;
             }
 
-            // Init with zeros
+            // Init with 0s
             uint8_t zeros[BLOCK_SIZE] = {0};
             result = vdisk_write(&disk, new_block, zeros);
             if (result != 0)
@@ -884,7 +1059,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
                 return new_block;
             }
 
-            // Init with zeros
+            // Init with 0s
             uint8_t zeros[BLOCK_SIZE] = {0};
             int result = vdisk_write(&disk, new_block, zeros);
             if (result != 0)
