@@ -104,6 +104,12 @@ run_cmd() {
         fi
     fi
 
+    # Check the output for error messages, even if return code is 0
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
+        error "$error_msg (Output indicates failure: $output)"
+        return 1
+    fi
+
     # Check the result
     check_result $result "$success_msg" "$error_msg"
     return $?
@@ -228,6 +234,13 @@ test_create() {
     test_name "Create File"
 
     local output=$($FS_TEST create)
+
+    # Check for error messages in the output
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
+        error "Create operation failed: $output"
+        return 1
+    fi
+
     local inode=$(echo $output | grep -o '[0-9]\+')
 
     if [ -z "$inode" ]; then
@@ -273,6 +286,12 @@ test_read() {
 
     local output=$($FS_TEST read $inode $offset $length)
 
+    # Check for error messages in the output
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
+        error "Read operation failed: $output"
+        return 1
+    fi
+
     # Check if output contains the expected data
     if [[ "$output" == *"$expected"* ]]; then
         success "Successfully read data from inode $inode"
@@ -296,6 +315,13 @@ test_stat() {
     test_name "File Stat (inode=$inode)"
 
     local output=$($FS_TEST stat $inode)
+
+    # Check for error messages in the output
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
+        error "Stat operation failed: $output"
+        return 1
+    fi
+
     local size=$(echo $output | grep -o '[0-9]\+')
 
     if [ "$size" == "$expected_size" ]; then
@@ -528,7 +554,7 @@ test_error_conditions() {
 
     # Try to stat a non-existent inode
     local output=$($FS_TEST stat 999 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Stat on non-existent inode correctly fails"
     else
         error "Stat on non-existent inode should fail but succeeded"
@@ -537,7 +563,7 @@ test_error_conditions() {
 
     # Try to read from a non-existent inode
     output=$($FS_TEST read 999 0 10 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Read from non-existent inode correctly fails"
     else
         error "Read from non-existent inode should fail but succeeded"
@@ -546,7 +572,7 @@ test_error_conditions() {
 
     # Try to delete a non-existent inode
     output=$($FS_TEST delete 999 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Delete of non-existent inode correctly fails"
     else
         error "Delete of non-existent inode should fail but succeeded"
@@ -555,7 +581,7 @@ test_error_conditions() {
 
     # Try to write to a non-existent inode
     output=$($FS_TEST write 999 0 "test content" 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Write to non-existent inode correctly fails"
     else
         error "Write to non-existent inode should fail but succeeded"
@@ -564,7 +590,7 @@ test_error_conditions() {
 
     # Try to mount already mounted disk
     output=$($FS_TEST mount $DISK_IMAGE 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Mount of already mounted disk correctly fails"
     else
         error "Mount of already mounted disk should fail but succeeded"
@@ -576,7 +602,7 @@ test_error_conditions() {
 
     # Try to read with negative offset
     output=$($FS_TEST read $inode -10 10 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Read with negative offset correctly fails"
     else
         error "Read with negative offset should fail but succeeded"
@@ -585,7 +611,7 @@ test_error_conditions() {
 
     # Try to write with negative offset
     output=$($FS_TEST write $inode -10 "test content" 2>&1)
-    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]]; then
+    if [[ "$output" == *"failed"* ]] || [[ "$output" == *"error"* ]] || [[ "$output" == *"Error code: -"* ]]; then
         success "Write with negative offset correctly fails"
     else
         error "Write with negative offset should fail but succeeded"
