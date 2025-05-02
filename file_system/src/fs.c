@@ -518,8 +518,33 @@ int delete(int inode_num)
 int stat(int inode_num)
 {
     // 1. Check if disk is mounted
-    // 2. Read inode
-    // 3. Return inode.size
+    if (!disk_mounted)
+    {
+        return E_DISK_NOT_MOUNTED;
+    }
+
+    // 2. Check if the inode number is valid
+    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    {
+        return E_INVALID_INODE;
+    }
+
+    // 3. Read the inode
+    inode_t inode;
+    int result = read_inode(inode_num, &inode);
+    if (result != 0)
+    {
+        return result; // Return error from read_inode
+    }
+
+    // 4. Check if the inode is allocated (valid)
+    if (inode.valid == 0)
+    {
+        return E_INVALID_INODE; // Inode is not in use
+    }
+
+    // 5. Return the file size
+    return inode.size;
 }
 
 int read(int inode_num, uint8_t *data, int len, int offset)
