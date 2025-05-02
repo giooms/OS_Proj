@@ -395,10 +395,124 @@ int create(void)
 int delete(int inode_num)
 {
     // 1. Check if disk is mounted
-    // 2. Read inode
-    // 3. Free all allocated blocks (direct, indirect, double-indirect)
-    // 4. Mark inode as invalid (valid=0)
-    // 5. Write inode to disk
+    if (!disk_mounted)
+    {
+        return E_DISK_NOT_MOUNTED;
+    }
+
+    // 2. Check if the inode number is valid
+    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    {
+        return E_INVALID_INODE;
+    }
+
+    // 3. Read the inode
+    inode_t inode;
+    int result = read_inode(inode_num, &inode);
+    if (result != 0)
+    {
+        return result;
+    }
+
+    // 4. Check if the inode is allocated
+    if (inode.valid == 0)
+    {
+        return E_INVALID_INODE; // Inode is already free
+    }
+
+    // 5. Free direct blocks
+    for (int i = 0; i < 4; i++)
+    {
+        if (inode.direct_blocks[i] != 0)
+        {
+            free_block(inode.direct_blocks[i]);
+            inode.direct_blocks[i] = 0;
+        }
+    }
+
+    // 6. Free indirect block and all blocks it points to
+    if (inode.indirect_block != 0)
+    {
+        // Read the indirect block
+        uint8_t indirect_block[BLOCK_SIZE];
+        result = vdisk_read(&disk, inode.indirect_block, indirect_block);
+        if (result != 0)
+        {
+            return result;
+        }
+
+        // Free all data blocks pointed to by the indirect block
+        uint32_t *pointers = (uint32_t *)indirect_block;
+        for (int i = 0; i < POINTERS_PER_BLOCK; i++)
+        {
+            if (pointers[i] != 0)
+            {
+                free_block(pointers[i]);
+            }
+        }
+
+        // Free the indirect block itself
+        free_block(inode.indirect_block);
+        inode.indirect_block = 0;
+    }
+
+    // 7. Free double indirect block and all blocks it points to
+    if (inode.double_indirect_block != 0)
+    {
+        // Read the double indirect block
+        uint8_t double_indirect_block[BLOCK_SIZE];
+        result = vdisk_read(&disk, inode.double_indirect_block, double_indirect_block);
+        if (result != 0)
+        {
+            return result;
+        }
+
+        // Process each indirect block pointer in the double indirect block
+        uint32_t *indirect_pointers = (uint32_t *)double_indirect_block;
+        for (int i = 0; i < POINTERS_PER_BLOCK; i++)
+        {
+            if (indirect_pointers[i] != 0)
+            {
+                // Read this indirect block
+                uint8_t indirect_block[BLOCK_SIZE];
+                result = vdisk_read(&disk, indirect_pointers[i], indirect_block);
+                if (result != 0)
+                {
+                    return result;
+                }
+
+                // Free all data blocks pointed to by this indirect block
+                uint32_t *data_pointers = (uint32_t *)indirect_block;
+                for (int j = 0; j < POINTERS_PER_BLOCK; j++)
+                {
+                    if (data_pointers[j] != 0)
+                    {
+                        free_block(data_pointers[j]);
+                    }
+                }
+
+                // Free the indirect block itself
+                free_block(indirect_pointers[i]);
+            }
+        }
+
+        // Free the double indirect block itself
+        free_block(inode.double_indirect_block);
+        inode.double_indirect_block = 0;
+    }
+
+    // 8. Mark the inode as free
+    inode.valid = 0;
+    inode.size = 0;
+
+    // 9. Write the updated inode back to disk
+    result = write_inode(inode_num, &inode);
+    if (result != 0)
+    {
+        return result;
+    }
+
+    return 0; // Success
 }
 
 int stat(int inode_num)
