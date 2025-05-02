@@ -47,6 +47,18 @@ static uint32_t *block_bitmap = NULL; // For tracking free blocks
 static char *mounted_disk = NULL;
 
 
+/*************************/
+/* Forward declarations  */
+/*************************/
+
+static int read_inode(int inode_num, inode_t *inode);
+static int write_inode(int inode_num, inode_t *inode);
+static void free_block(int block_num);
+static int find_free_block(void);
+static int get_block_for_offset(inode_t *inode, int offset, bool allocate);
+static int initialize_block(int block_num);
+
+
 
 /*************************/
 /* Core functions        */
