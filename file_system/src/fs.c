@@ -300,11 +300,39 @@ int mount(char *disk_name)
 
 int unmount(void)
 {
-    // 1. Check if disk is mounted
-    // 2. Sync disk with vdisk_sync
-    // 3. Free resources (block_bitmap, mounted_disk)
-    // 4. Call vdisk_off
-    // 5. Clear disk_mounted flag
+    // 1. Check if disk is currently mounted
+    if (!disk_mounted)
+    {
+        return E_DISK_NOT_MOUNTED;
+    }
+
+    // 2. Sync any pending changes to disk
+    int result = vdisk_sync(&disk);
+    // don't check result here, as we want to clean up even if sync fails
+    // we check for success in the final return
+
+    // 3. Free memory allocated for block bitmap
+    if (block_bitmap != NULL)
+    {
+        free(block_bitmap);
+        block_bitmap = NULL;
+    }
+
+    // 4. Free memory allocated for mounted disk name
+    if (mounted_disk != NULL)
+    {
+        free(mounted_disk);
+        mounted_disk = NULL;
+    }
+
+    // 5. Close the virtual disk
+    vdisk_off(&disk);
+
+    // 6. Reset the disk_mounted flag
+    disk_mounted = false;
+
+    // Return 0 for success, or the error code from vdisk_sync if it failed
+    return (result == 0) ? 0 : result;
 }
 
 int create(void)
