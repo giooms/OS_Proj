@@ -56,8 +56,6 @@ static int write_inode(int inode_num, inode_t *inode);
 static void free_block(int block_num);
 static int find_free_block(void);
 static int get_block_for_offset(inode_t *inode, int offset, bool allocate);
-static int initialize_block(int block_num);
-
 
 
 /*************************/
@@ -869,7 +867,7 @@ static int read_inode(int inode_num, inode_t *inode)
         return E_DISK_NOT_MOUNTED;
     }
 
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -900,7 +898,7 @@ static int write_inode(int inode_num, inode_t *inode)
         return E_DISK_NOT_MOUNTED;
     }
 
-    if (inode_num < 0 || inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
+    if (inode_num < 0 || (uint32_t)inode_num >= superblock.num_inode_blocks * INODES_PER_BLOCK)
     {
         return E_INVALID_INODE;
     }
@@ -942,7 +940,7 @@ static int find_free_block()
     int first_data_block = 1 + superblock.num_inode_blocks;
 
     // Search for the first available block using first-available strategy
-    for (int i = first_data_block; i < superblock.num_blocks; i++)
+    for (uint32_t i = (uint32_t)first_data_block; i < superblock.num_blocks; i++)
     {
         if (block_bitmap[i] == 0)
         {
@@ -958,7 +956,7 @@ static int find_free_block()
 // Helper function to mark a block as free
 static void free_block(int block_num)
 {
-    if (disk_mounted && block_num > 0 && block_num < superblock.num_blocks)
+    if (disk_mounted && block_num > 0 && (uint32_t)block_num < superblock.num_blocks)
     {
         // Mark the block as free in the bitmap
         block_bitmap[block_num] = 0;
@@ -1008,7 +1006,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
 
     // Indirect blocks (4-259)
     block_index -= 4;
-    if (block_index < POINTERS_PER_BLOCK)
+    if ((uint32_t)block_index < POINTERS_PER_BLOCK)
     {
         // Check if we have an indirect block
         if (inode->indirect_block == 0)
@@ -1081,7 +1079,7 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
 
     // Double indirect blocks (260+)
     block_index -= POINTERS_PER_BLOCK;
-    if (block_index < POINTERS_PER_BLOCK * POINTERS_PER_BLOCK)
+    if ((uint32_t)block_index < (uint32_t)POINTERS_PER_BLOCK * POINTERS_PER_BLOCK)
     {
         // Check if we have a double indirect block
         if (inode->double_indirect_block == 0)
@@ -1200,16 +1198,4 @@ static int get_block_for_offset(inode_t *inode, int offset, bool allocate)
     }
 
     return E_INVALID_OFFSET; // Offset too large for this file system
-}
-
-// Helper function to initialize a block with zeros
-static int initialize_block(int block_num)
-{
-    if (!disk_mounted)
-    {
-        return E_DISK_NOT_MOUNTED;
-    }
-
-    uint8_t zeros[BLOCK_SIZE] = {0};
-    return vdisk_write(&disk, block_num, zeros);
 }
