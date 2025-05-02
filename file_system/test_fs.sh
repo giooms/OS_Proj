@@ -8,12 +8,17 @@
 DISK_IMAGE="test_disk.img"
 DISK_SIZE=1024  # Size in blocks (1KB per block)
 TEST_LOG="fs_test_results.log"
-FS_TEST="./fs_test"
+FS_TEST="./src/fs_test"  # Updated path to run from src directory
 VERBOSE=1       # Set to 1 for verbose output, 0 for minimal output
 
 # ==============================
 # Utility Functions
 # ==============================
+
+# ANSI color codes
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
 # Log a message to the console and log file
 log() {
@@ -23,8 +28,17 @@ log() {
 
     # Only show INFO messages if VERBOSE is enabled
     if [ "$level" != "INFO" ] || [ $VERBOSE -eq 1 ]; then
-        echo "[$level] $timestamp - $message"
+        # Use colors for terminal output based on message level
+        if [ "$level" == "SUCCESS" ]; then
+            echo -e "[${GREEN}$level${NC}] $timestamp - $message"
+        elif [ "$level" == "ERROR" ]; then
+            echo -e "[${RED}$level${NC}] $timestamp - $message"
+        else
+            echo "[$level] $timestamp - $message"
+        fi
     fi
+
+    # Log file doesn't include colors
     echo "[$level] $timestamp - $message" >> $TEST_LOG
 }
 
@@ -51,7 +65,7 @@ test_name() {
     echo "===================================" >> $TEST_LOG
     echo ""
     echo "====================================="
-    echo "RUNNING TEST: $1"
+    echo -e "${GREEN}RUNNING TEST: $1${NC}"
     echo "====================================="
 }
 
@@ -145,6 +159,13 @@ create_test_file() {
 # Setup test environment
 setup() {
     test_name "Setup Test Environment"
+
+    # Make sure we're in the right directory
+    info "Ensuring we're in the correct directory"
+    if [ ! -d "./src" ]; then
+        error "Please run this script from the root directory of the file system project"
+        exit 1
+    fi
 
     # Create an empty log file
     > $TEST_LOG
@@ -742,7 +763,7 @@ run_all_tests() {
     # Final summary
     echo ""
     echo "============================================="
-    echo "TESTING COMPLETE - Check $TEST_LOG for details"
+    echo -e "${GREEN}TESTING COMPLETE - Check $TEST_LOG for details${NC}"
     echo "============================================="
 }
 

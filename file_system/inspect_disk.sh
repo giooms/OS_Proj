@@ -2,8 +2,13 @@
 
 # Utility script to inspect disk image contents
 
+# ANSI color codes
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
 usage() {
-    echo "Usage: $0 [OPTIONS] disk_image"
+    echo -e "${GREEN}Usage: $0 [OPTIONS] disk_image${NC}"
     echo "Options:"
     echo "  -b, --block NUM         Show specific block number (default: 0)"
     echo "  -n, --blocks COUNT      Number of blocks to display (default: 1)"
@@ -63,22 +68,28 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Check if we're in the right directory
+if [ ! -d "./src" ]; then
+    echo -e "${RED}Error: Please run this script from the root directory of the file system project${NC}"
+    exit 1
+fi
+
 # Check if disk image was provided
 if [ -z "$DISK_IMAGE" ]; then
-    echo "Error: No disk image specified"
+    echo -e "${RED}Error: No disk image specified${NC}"
     usage
     exit 1
 fi
 
 # Check if disk image exists
 if [ ! -f "$DISK_IMAGE" ]; then
-    echo "Error: Disk image file not found: $DISK_IMAGE"
+    echo -e "${RED}Error: Disk image file not found: $DISK_IMAGE${NC}"
     exit 1
 fi
 
 # Get disk size in blocks (assuming 1024-byte blocks)
 DISK_SIZE=$(($(stat -c%s "$DISK_IMAGE") / 1024))
-echo "Disk image: $DISK_IMAGE ($DISK_SIZE blocks of 1024 bytes each)"
+echo -e "${GREEN}Disk image: $DISK_IMAGE ($DISK_SIZE blocks of 1024 bytes each)${NC}"
 
 # Function to display blocks
 show_blocks() {
@@ -87,19 +98,19 @@ show_blocks() {
     local desc=$3
 
     echo "==================================================="
-    echo "$desc"
+    echo -e "${GREEN}$desc${NC}"
     echo "==================================================="
 
     # Check for valid range
     if [ $start -ge $DISK_SIZE ]; then
-        echo "Error: Starting block $start is beyond disk size"
+        echo -e "${RED}Error: Starting block $start is beyond disk size${NC}"
         return 1
     fi
 
     # Adjust count if it would go beyond disk size
     if [ $((start + count)) -gt $DISK_SIZE ]; then
         count=$((DISK_SIZE - start))
-        echo "Warning: Adjusted block count to $count to fit disk size"
+        echo -e "${RED}Warning: Adjusted block count to $count to fit disk size${NC}"
     fi
 
     # Calculate byte offsets
