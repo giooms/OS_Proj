@@ -51,7 +51,7 @@ static char *mounted_disk = NULL;
 /* Forward declarations  */
 /*************************/
 
-static int read_inode(int inode_num, inode_t *inode);
+static int read_inode(int inode_num, inode_t *inode, bool bypass_mount_check);
 static int write_inode(int inode_num, inode_t *inode);
 static void free_block(int block_num);
 static int find_free_block(void);
@@ -161,7 +161,6 @@ int mount(char *disk_name)
     // 1. Check if disk already mounted
     if (disk_mounted)
     {
-        printf("Disk already mounted\n");
         return E_DISK_ALREADY_MOUNTED;
     }
 
@@ -169,7 +168,6 @@ int mount(char *disk_name)
     int result = vdisk_on(disk_name, &disk);
     if (result != 0)
     {
-        printf("vdisk_on error\n");
         return result;
     }
 
@@ -178,7 +176,6 @@ int mount(char *disk_name)
     result = vdisk_read(&disk, 0, block_buffer);
     if (result != 0)
     {
-        printf("vdisk_read error\n");
         vdisk_off(&disk);
         return result;
     }
@@ -188,7 +185,6 @@ int mount(char *disk_name)
     // 4. Verify the magic #
     if (memcmp(superblock.magic, MAGIC_NUMBER, 16) != 0)
     {
-        printf("memcpy error\n");
         vdisk_off(&disk);
         return E_CORRUPT_DISK;
     }
@@ -197,7 +193,6 @@ int mount(char *disk_name)
     block_bitmap = (uint32_t *)calloc(superblock.num_blocks, sizeof(uint32_t));
     if (block_bitmap == NULL)
     {
-        printf("blockbitmap error\n");
         vdisk_off(&disk);
         return E_OUT_OF_SPACE;  // see error.h
     }
@@ -213,10 +208,9 @@ int mount(char *disk_name)
     for (uint32_t i = 0; i < superblock.num_inode_blocks * INODES_PER_BLOCK; i++)
     {
         inode_t inode;
-        int result = read_inode(i, &inode);
+        int result = read_inode(i, &inode, true);
         if (result != 0)
         {
-            printf("read_inode error\n");
             free(block_bitmap);
             block_bitmap = NULL;
             vdisk_off(&disk);
@@ -243,7 +237,6 @@ int mount(char *disk_name)
                 result = vdisk_read(&disk, inode.indirect_block, indirect_block);
                 if (result != 0)
                 {
-                    printf("vdisk_read 2 error\n");
                     free(block_bitmap);
                     block_bitmap = NULL;
                     vdisk_off(&disk);
@@ -270,7 +263,6 @@ int mount(char *disk_name)
                 result = vdisk_read(&disk, inode.double_indirect_block, double_indirect_block);
                 if (result != 0)
                 {
-                    printf("vdisk_read 3 error\n");
                     free(block_bitmap);
                     block_bitmap = NULL;
                     vdisk_off(&disk);
@@ -290,7 +282,6 @@ int mount(char *disk_name)
                         result = vdisk_read(&disk, indirect_pointers[j], curr_indirect_block);
                         if (result != 0)
                         {
-                            printf("vdisk_read 4 error\n");
                             free(block_bitmap);
                             block_bitmap = NULL;
                             vdisk_off(&disk);
@@ -317,7 +308,6 @@ int mount(char *disk_name)
     mounted_disk = (char *)malloc(name_length);
     if (mounted_disk == NULL)
     {
-        printf("malloc error\n");
         free(block_bitmap);
         block_bitmap = NULL;
         vdisk_off(&disk);
@@ -372,6 +362,7 @@ int create(void)
     // 1. Check for disk mounted
     if (!disk_mounted)
     {
+        printf("Disk not mounted\n");
         return E_DISK_NOT_MOUNTED;
     }
 
@@ -381,7 +372,7 @@ int create(void)
     {
         // 3. Get curr inode
         inode_t inode;
-        int result = read_inode(inode_num, &inode);
+        int result = read_inode(inode_num, &inode, false);
         if (result != 0)
         {
             return result;
@@ -433,7 +424,7 @@ int delete(int inode_num)
 
     // 3. Read inode
     inode_t inode;
-    int result = read_inode(inode_num, &inode);
+    int result = read_inode(inode_num, &inode, false);
     if (result != 0)
     {
         return result;
@@ -556,7 +547,7 @@ int stat(int inode_num)
 
     // 3. Read inode
     inode_t inode;
-    int result = read_inode(inode_num, &inode);
+    int result = read_inode(inode_num, &inode, false);
     if (result != 0)
     {
         return result;
@@ -587,7 +578,7 @@ int read(int inode_num, uint8_t *data, int len, int offset)
 
     // 3. Read inode
     inode_t inode;
-    int result = read_inode(inode_num, &inode);
+    int result = read_inode(inode_num, &inode, false);
     if (result != 0)
     {
         return result;
@@ -678,7 +669,7 @@ int write(int inode_num, uint8_t *data, int len, int offset)
 
     // 3. Read the inode
     inode_t inode;
-    int result = read_inode(inode_num, &inode);
+    int result = read_inode(inode_num, &inode, false);
     if (result != 0)
     {
         return result;
@@ -860,9 +851,10 @@ int write(int inode_num, uint8_t *data, int len, int offset)
 /*************************/
 
 // Helper function to read an inode from disk
-static int read_inode(int inode_num, inode_t *inode)
+// bypass_mount_check: if true, skip the mounted disk check (used only during mount operation)
+static int read_inode(int inode_num, inode_t *inode, bool bypass_mount_check)
 {
-    if (!disk_mounted)
+    if (!disk_mounted && !bypass_mount_check)
     {
         return E_DISK_NOT_MOUNTED;
     }
