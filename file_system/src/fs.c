@@ -129,11 +129,173 @@ int format(char *disk_name, int inodes)
 int mount(char *disk_name)
 {
     // 1. Check if disk is already mounted
-    // 2. Open disk with vdisk_on
-    // 3. Read superblock
-    // 4. Verify magic number
-    // 5. Initialize block bitmap (mark used blocks)
-    // 6. Set mounted_disk and disk_mounted flag
+    if (disk_mounted)
+    {
+        return E_DISK_ALREADY_MOUNTED;
+    }
+
+    // 2. Open the disk image file
+    int result = vdisk_on(disk_name, &disk);
+    if (result != 0)
+    {
+        return result; // Return error from vdisk_on
+    }
+
+    // 3. Read the superblock (Block 0)
+    uint8_t block_buffer[BLOCK_SIZE];
+    result = vdisk_read(&disk, 0, block_buffer);
+    if (result != 0)
+    {
+        vdisk_off(&disk);
+        return result;
+    }
+
+    // Copy superblock data
+    memcpy(&superblock, block_buffer, sizeof(superblock_t));
+
+    // 4. Verify the magic number
+    if (memcmp(superblock.magic, MAGIC_NUMBER, 16) != 0)
+    {
+        vdisk_off(&disk);
+        return E_CORRUPT_DISK;
+    }
+
+    // 5. Allocate memory for the block bitmap
+    block_bitmap = (uint32_t *)calloc(superblock.num_blocks, sizeof(uint32_t));
+    if (block_bitmap == NULL)
+    {
+        vdisk_off(&disk);
+        return E_OUT_OF_SPACE; // Using this error code for memory allocation failure
+    }
+
+    // 6. Initialize block bitmap - mark superblock and inode blocks as used
+    block_bitmap[0] = 1; // Superblock (Block 0)
+
+    // Mark all inode blocks as used (from Block 1 up to num_inode_blocks)
+    for (uint32_t i = 1; i <= superblock.num_inode_blocks; i++)
+    {
+        block_bitmap[i] = 1;
+    }
+
+    // Scan all inodes to mark data blocks as used if allocated
+    for (int i = 0; i < superblock.num_inode_blocks * INODES_PER_BLOCK; i++)
+    {
+        inode_t inode;
+        int result = read_inode(i, &inode);
+        if (result != 0)
+        {
+            free(block_bitmap);
+            block_bitmap = NULL;
+            vdisk_off(&disk);
+            return result; // Return error immediately if read_inode fails
+        }
+
+        // Only process valid inodes
+        if (inode.valid)
+        {
+            // Mark direct blocks
+            for (int j = 0; j < 4; j++)
+            {
+                if (inode.direct_blocks[j] != 0)
+                {
+                    block_bitmap[inode.direct_blocks[j]] = 1;
+                }
+            }
+
+            // Process indirect block if present
+            if (inode.indirect_block != 0)
+            {
+                block_bitmap[inode.indirect_block] = 1;
+
+                // Read the indirect block
+                uint8_t indirect_block[BLOCK_SIZE];
+                result = vdisk_read(&disk, inode.indirect_block, indirect_block);
+                if (result != 0)
+                {
+                    free(block_bitmap);
+                    block_bitmap = NULL;
+                    vdisk_off(&disk);
+                    return result;
+                }
+
+                // Mark all non-zero entries in the indirect block
+                uint32_t *pointers = (uint32_t *)indirect_block;
+                for (int k = 0; k < POINTERS_PER_BLOCK; k++)
+                {
+                    if (pointers[k] != 0)
+                    {
+                        block_bitmap[pointers[k]] = 1;
+                    }
+                }
+            }
+
+            // Process double indirect block if present
+            if (inode.double_indirect_block != 0)
+            {
+                block_bitmap[inode.double_indirect_block] = 1;
+
+                // Read the double indirect block
+                uint8_t double_indirect_block[BLOCK_SIZE];
+                result = vdisk_read(&disk, inode.double_indirect_block, double_indirect_block);
+                if (result != 0)
+                {
+                    free(block_bitmap);
+                    block_bitmap = NULL;
+                    vdisk_off(&disk);
+                    return result;
+                }
+
+                // Process each indirect block pointer in the double indirect block
+                uint32_t *indirect_pointers = (uint32_t *)double_indirect_block;
+                for (int j = 0; j < POINTERS_PER_BLOCK; j++)
+                {
+                    if (indirect_pointers[j] != 0)
+                    {
+                        // Mark the indirect block as used
+                        block_bitmap[indirect_pointers[j]] = 1;
+
+                        // Read this indirect block
+                        uint8_t curr_indirect_block[BLOCK_SIZE];
+                        result = vdisk_read(&disk, indirect_pointers[j], curr_indirect_block);
+                        if (result != 0)
+                        {
+                            free(block_bitmap);
+                            block_bitmap = NULL;
+                            vdisk_off(&disk);
+                            return result;
+                        }
+
+                        // Mark all non-zero entries in this indirect block
+                        uint32_t *data_pointers = (uint32_t *)curr_indirect_block;
+                        for (int k = 0; k < POINTERS_PER_BLOCK; k++)
+                        {
+                            if (data_pointers[k] != 0)
+                            {
+                                block_bitmap[data_pointers[k]] = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Store the disk name
+    int name_length = strlen(disk_name) + 1;
+    mounted_disk = (char *)malloc(name_length);
+    if (mounted_disk == NULL)
+    {
+        free(block_bitmap);
+        block_bitmap = NULL;
+        vdisk_off(&disk);
+        return E_OUT_OF_SPACE; // Using this error code for memory allocation failure
+    }
+    strcpy(mounted_disk, disk_name);
+
+    // 8. Set disk_mounted flag
+    disk_mounted = true;
+
+    return 0; // Success
 }
 
 int unmount(void)
