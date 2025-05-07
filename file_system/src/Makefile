@@ -1,49 +1,18 @@
-# ==============================================================================
-# Makefile for SSFS Project
-# ==============================================================================
+CFLAGS = -Wall -Wextra -g -std=gnu99 -U_FORTIFY_SOURCE
+LDFLAGS = -lbsd -Wl,--hash-style=both -static-libgcc
+INCLUDE = -Iinclude
 
-# Compiler to use
-CC = gcc
-
-# Compiler flags:
-CFLAGS = -Wall -Wextra -g
-
-# Linker flags:
-LDFLAGS = -lbsd
-
-# Include directory for header files
-INCLUDE_DIR = include
-
-# Source files
 SRCS = main.c fs.c error.c vdisk/vdisk.c
-
-# Object files
 OBJS = $(SRCS:.c=.o)
-
-# Name of the final executable
 TARGET = fs_test
 
-# Phony targets
-.PHONY: all clean
+all: $(OBJS)
+	gcc -o $(TARGET) $(OBJS) $(LDFLAGS)
 
-# Default target
-all: $(TARGET)
-
-# Rule to link object files into the executable
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) $(LDFLAGS) -o $(TARGET)
-
-# Rule for compiling .c files in the src/ dir
 %.o: %.c
-	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+	$(CC) $(CFLAGS) $(INCLUDE) -c $< -o $@
 
-# Rule for compiling .c files in the vdisk/ subdir
-vdisk/%.o: vdisk/%.c
-	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
-
-# Clean target
 clean:
 	rm -f $(OBJS) $(TARGET)
 
-# End of Makefile
-# ==============================================================================
+.PHONY: all clean
