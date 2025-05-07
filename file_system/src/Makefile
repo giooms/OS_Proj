@@ -17,7 +17,7 @@ LDFLAGS = -lbsd -Wl,--hash-style=both -static-libgcc
 INCLUDE = -Iinclude
 
 # List of source files to compile
-SRCS = main.c fs.c error.c helpers.c vdisk/vdisk.c
+SRCS = main.c fs.c error.c vdisk/vdisk.c
 
 # Generate object file names by replacing .c with .o in SRCS
 OBJS = $(SRCS:.c=.o)
